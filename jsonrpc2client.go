@@ -87,13 +87,13 @@ func NewClient(endpoint string) *rpcClient {
 }
 
 func NewClientWithOpts(endpoint string, maxConn int, maxBatch int) *rpcClient {
-	rpcClient := &rpcClient{
+	fmt.Println("printing")
+	return &rpcClient{
 		endpoint:       endpoint,
 		httpClient:     &fasthttp.Client{},
 		MaxConnections: maxConn,
 		MaxBatchSize:   maxBatch,
 	}
-	return rpcClient
 }
 
 func (client *rpcClient) CallRaw(request *RpcRequest) (*RpcResponse, error) {
@@ -137,31 +137,38 @@ func (client *rpcClient) doBatchCall(rpcRequests []*RpcRequest) ([]*RpcResponse,
 	rpcResponses := RpcResponses{}
 
 	work := func(rpcRequest RPCRequests) {
-
+		rpcResponse := RpcResponses{}
 		httpRequest, err := client.newRequest(rpcRequest)
 		if err != nil {
 			log.Printf("%v", err)
+			rpcResponse = RpcResponses{&RpcResponse{Error: &RpcError{Message: err.Error()}}}
+			rpcResponses = append(rpcResponses, rpcResponse...)
+			return
 		}
 		httpRequest.Header.Set("Accept-Encoding", "gzip")
 		res := fasthttp.AcquireResponse()
 
-
 		if err2 := fasthttp.Do(httpRequest, res); err != nil {
 			log.Printf("%v", err2)
+			rpcResponse = RpcResponses{&RpcResponse{Error: &RpcError{Message: err2.Error()}}}
+			rpcResponses = append(rpcResponses, rpcResponse...)
+			return
 		}
 		fasthttp.ReleaseRequest(httpRequest)
 
 		contentEncoding := res.Header.Peek("Content-Encoding")
 		var body []byte
 		if bytes.EqualFold(contentEncoding, []byte("gzip")) {
-			//fmt.Println("Unzipping...")
 			body, _ = res.BodyGunzip()
 		} else {
 			body = res.Body()
 		}
-		rpcResponse := RpcResponses{}
-		if err := json.Unmarshal(body, &rpcResponse); err != nil {
+
+		if err3 := json.Unmarshal(body, &rpcResponse); err != nil {
 			log.Printf("%v", err)
+			rpcResponse = RpcResponses{&RpcResponse{Error: &RpcError{Message: err3.Error()}}}
+			rpcResponses = append(rpcResponses, rpcResponse...)
+			return
 		}
 
 		if len(rpcResponse) > 0 {
@@ -226,6 +233,10 @@ func (client *rpcClient) doFastBatchCall(rpcRequests []*RpcRequest) ([][]byte, e
 		httpRequest, err := client.newRequest(rpcRequest)
 		if err != nil {
 			log.Printf("%v", err)
+			respErr := RpcResponses{&RpcResponse{Error: &RpcError{Message: err.Error()}}}
+			respErrB, _ := json.Marshal(respErr)
+			rpcResponses = append(rpcResponses, respErrB)
+			return
 		}
 
 		res := fasthttp.AcquireResponse()
@@ -233,19 +244,24 @@ func (client *rpcClient) doFastBatchCall(rpcRequests []*RpcRequest) ([][]byte, e
 
 		if err2 := fasthttp.Do(httpRequest, res); err != nil {
 			log.Printf("%v", err2)
+			respErr := RpcResponses{&RpcResponse{Error: &RpcError{Message: err2.Error()}}}
+			respErrB, _ := json.Marshal(respErr)
+			rpcResponses = append(rpcResponses, respErrB)
+			return
 		}
 		fasthttp.ReleaseRequest(httpRequest)
 
 		contentEncoding := res.Header.Peek("Content-Encoding")
 		var body []byte
 		if bytes.EqualFold(contentEncoding, []byte("gzip")) {
-			//fmt.Println("Unzipping...")
 			body, _ = res.BodyGunzip()
 		} else {
 			body = res.Body()
 		}
 
-		rpcResponses = append(rpcResponses, body)
+		if len(body) > 0 {
+			rpcResponses = append(rpcResponses, body)
+		}
 
 		fasthttp.ReleaseResponse(res)
 	}
@@ -281,7 +297,6 @@ func (client *rpcClient) doCall(RPCRequest *RpcRequest) (*RpcResponse, error) {
 	contentEncoding := res.Header.Peek("Content-Encoding")
 	var body []byte
 	if bytes.EqualFold(contentEncoding, []byte("gzip")) {
-		//fmt.Println("Unzipping...")
 		body, _ = res.BodyGunzip()
 	} else {
 		body = res.Body()
@@ -313,7 +328,6 @@ func (client *rpcClient) doFastCall(RPCRequest *RpcRequest) (*RpcResponse, error
 	contentEncoding := res.Header.Peek("Content-Encoding")
 	var body []byte
 	if bytes.EqualFold(contentEncoding, []byte("gzip")) {
-		//fmt.Println("Unzipping...")
 		body, _ = res.BodyGunzip()
 	} else {
 		body = res.Body()
