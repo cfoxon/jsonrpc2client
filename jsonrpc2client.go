@@ -87,7 +87,6 @@ func NewClient(endpoint string) *rpcClient {
 }
 
 func NewClientWithOpts(endpoint string, maxConn int, maxBatch int) *rpcClient {
-	fmt.Println("printing")
 	return &rpcClient{
 		endpoint:       endpoint,
 		httpClient:     &fasthttp.Client{},
