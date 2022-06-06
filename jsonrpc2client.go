@@ -195,11 +195,9 @@ func (client *rpcClient) doFastBatchCall(rpcRequests []*RpcRequest) ([][]byte, e
 	reqs := (len(rpcRequests) / client.MaxBatchSize) + 1
 	pendingRpcReqs := make(chan RPCRequests, reqs)
 
-	batch := RPCRequests{}
-
+	var batch RPCRequests
 	for i, p := range rpcRequests {
 		batch = append(batch, p)
-
 		if i%client.MaxBatchSize == 0 && i > 0 {
 			var pendingBatch RPCRequests
 			pendingBatch = batch
@@ -214,7 +212,6 @@ func (client *rpcClient) doFastBatchCall(rpcRequests []*RpcRequest) ([][]byte, e
 		pendingRpcReqs <- pendingBatch
 		batch = nil
 	}
-
 	close(pendingRpcReqs)
 
 	numWorkers := client.MaxConnections
@@ -222,19 +219,14 @@ func (client *rpcClient) doFastBatchCall(rpcRequests []*RpcRequest) ([][]byte, e
 		numWorkers = reqs
 	}
 
-	var wait sync.WaitGroup
-	wait.Add(numWorkers)
-
-	var rpcResponses [][]byte
-
+	resc := make(chan []byte)
 	work := func(rpcRequest RPCRequests) {
-
 		httpRequest, err := client.newRequest(rpcRequest)
 		if err != nil {
 			log.Printf("%v", err)
 			respErr := RpcResponses{&RpcResponse{Error: &RpcError{Message: err.Error()}}}
 			respErrB, _ := json.Marshal(respErr)
-			rpcResponses = append(rpcResponses, respErrB)
+			resc <- respErrB
 			return
 		}
 
@@ -245,7 +237,7 @@ func (client *rpcClient) doFastBatchCall(rpcRequests []*RpcRequest) ([][]byte, e
 			log.Printf("%v", err2)
 			respErr := RpcResponses{&RpcResponse{Error: &RpcError{Message: err2.Error()}}}
 			respErrB, _ := json.Marshal(respErr)
-			rpcResponses = append(rpcResponses, respErrB)
+			resc <- respErrB
 			return
 		}
 		fasthttp.ReleaseRequest(httpRequest)
@@ -259,15 +251,12 @@ func (client *rpcClient) doFastBatchCall(rpcRequests []*RpcRequest) ([][]byte, e
 		}
 
 		if len(body) > 0 {
-			rpcResponses = append(rpcResponses, body)
+			resc <- body
 		}
-
 		fasthttp.ReleaseResponse(res)
 	}
 
 	worker := func(ch <-chan RPCRequests) {
-		defer wait.Done()
-
 		for j := range ch {
 			work(j)
 		}
@@ -276,7 +265,13 @@ func (client *rpcClient) doFastBatchCall(rpcRequests []*RpcRequest) ([][]byte, e
 		go worker(pendingRpcReqs)
 	}
 
-	wait.Wait()
+	var rpcResponses [][]byte
+	for i := 0; i < numWorkers; i++ {
+		b := <-resc
+		rpcResponses = append(rpcResponses, b)
+	}
+	close(resc)
+
 	return rpcResponses, nil
 }
 
