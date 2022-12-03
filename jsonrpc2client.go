@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/valyala/fasthttp"
 	"log"
 	"sync"
+
+	"github.com/valyala/fasthttp"
 )
 
 type RPCRequests []*RpcRequest
@@ -89,7 +90,7 @@ func NewClient(endpoint string) *rpcClient {
 func NewClientWithOpts(endpoint string, maxConn int, maxBatch int) *rpcClient {
 	return &rpcClient{
 		endpoint:       endpoint,
-		httpClient:     &fasthttp.Client{},
+		httpClient:     &fasthttp.Client{DialDualStack: true},
 		MaxConnections: maxConn,
 		MaxBatchSize:   maxBatch,
 	}
